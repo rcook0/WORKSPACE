@@ -5,19 +5,23 @@ FROM dev-stack:latest
 LABEL maintainer="rcook0"
 LABEL description="WORKSPACE meta-repo image extending dev-stack with auto repo loader"
 
-# Optional: install additional global tools
-# (example: curl, jq, gh CLI if not in base)
-#RUN apt-get update && apt-get install -y \
-#    curl jq git-lfs \
-# && rm -rf /var/lib/apt/lists/*
-
-# Workspace environment variables
 ENV WORKSPACE_HOME=/workspace
 WORKDIR $WORKSPACE_HOME
+
+# Optional: install additional global tools
+# (example: curl, jq, gh CLI if not in base)
+RUN apt-get update && apt-get install -y curl jq git-lfs cron && rm -rf /var/lib/apt/lists/*
 
 # Add repo sync + backup helper
 COPY clone.sh /usr/local/bin/clone.sh
 RUN chmod +x /usr/local/bin/clone.sh
 
-# Default entrypoint keeps container interactive
-CMD [ "bash" ]
+# Add crontab file
+COPY crontab.txt /etc/cron.d/workspace-cron
+RUN chmod 0644 /etc/cron.d/workspace-cron \
+    && crontab /etc/cron.d/workspace-cron
+
+# Ensure cron logs go to stdout
+RUN touch /var/log/cron.log
+
+CMD service cron start && bash
