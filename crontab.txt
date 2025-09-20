@@ -1,2 +1,2 @@
-# Run clone.sh daily at midnight
-0 0 * * * /usr/local/bin/clone.sh >> /workspace/logs/cron-sync.log 2>&1
+# Run clone.sh every 12 hours (midnight and noon UTC)
+0 */12 * * * /usr/local/bin/clone.sh >> /workspace/logs/cron-sync.log 2>&1
