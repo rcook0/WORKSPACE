@@ -14,3 +14,7 @@ build/
 # Docker volumes
 data/
 .backup/
+
+# Logs / backup housekeeping
+/workspaces/WORKSPACE/logs/
+/workspaces/WORKSPACE/.backup/  
