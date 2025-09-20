@@ -31,7 +31,7 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 # Call the real clone.sh in WORKSPACE repo
-/workspaces/WORKSPACE/clone.sh "$@"
+/workspaces/WORKSPACE/clone.sh 
 
 # Show log output
 if [ -f "$LOG_FILE" ]; then
@@ -42,6 +42,10 @@ if [ -f "$LOG_FILE" ]; then
     echo -e "\n📜 Last $TAIL_LINES lines from $LOG_FILE:"
     tail -n "$TAIL_LINES" "$LOG_FILE"
   fi
+
+  # Always show summary block clearly
+  echo -e "\n📊 Sync Summary:"
+  grep -A 10 "📌 Summary:" "$LOG_FILE" | tail -n +1
 else
   echo "⚠️  No sync.log found yet."
 fi
