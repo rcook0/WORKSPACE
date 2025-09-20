@@ -5,7 +5,7 @@ FROM dev-stack:latest
 LABEL maintainer="rcook0"
 LABEL description="WORKSPACE meta-repo image extending dev-stack with auto repo loader"
 
-ENV WORKSPACE_HOME=/workspace
+ENV WORKSPACE_HOME=/workspaces/WORKSPACE
 WORKDIR $WORKSPACE_HOME
 
 # Optional: install additional global tools
