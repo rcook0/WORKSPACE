@@ -33,25 +33,36 @@ for repo in $repos; do
   fi
 done
 
-# --- Backup Non-Git State ---
+# --- Prepare Backup Repo ---
 mkdir -p "$BACKUP_DIR"
-timestamp=$(date +"%Y%m%d-%H%M%S")
-archive="workspace-data-${timestamp}.tar.gz"
-
-if [ -d "$STATE_DIR" ]; then
-  echo "Archiving $STATE_DIR -> $archive"
-  tar -czf "$BACKUP_DIR/$archive" -C "$WORKSPACE_DIR" data
-fi
-
-# Initialize backup repo clone if missing
 if [ ! -d "$BACKUP_DIR/repo/.git" ]; then
   git clone "$BACKUP_REPO" "$BACKUP_DIR/repo"
 fi
-
 cd "$BACKUP_DIR/repo"
-cp "$BACKUP_DIR/$archive" .
-git add "$archive"
-git commit -m "Backup workspace data ${timestamp}" || true
+
+# --- Auto-Restore (if /workspace/data is missing) ---
+if [ ! -d "$STATE_DIR" ] || [ -z "$(ls -A "$STATE_DIR" 2>/dev/null)" ]; then
+  latest_backup=$(ls -t workspace-data-*.tar.gz 2>/dev/null | head -n1 || true)
+  if [ -n "$latest_backup" ]; then
+    echo "Restoring workspace data from $latest_backup"
+    mkdir -p "$STATE_DIR"
+    tar -xzf "$latest_backup" -C "$WORKSPACE_DIR"
+  else
+    echo "No backup found to restore."
+  fi
+fi
+
+# --- Backup Non-Git State ---
+timestamp=$(date +"%Y%m%d-%H%M%S")
+archive="workspace-data-${timestamp}.tar.gz"
+
+if [ -d "$STATE_DIR" ] && [ -n "$(ls -A "$STATE_DIR")" ]; then
+  echo "Archiving $STATE_DIR -> $archive"
+  tar -czf "$BACKUP_DIR/$archive" -C "$WORKSPACE_DIR" data
+  cp "$BACKUP_DIR/$archive" .
+  git add "$archive"
+  git commit -m "Backup workspace data ${timestamp}" || true
+fi
 
 # --- Prune old backups, keep last 3 ---
 echo "Pruning old backups, keeping last 3..."
@@ -61,5 +72,5 @@ git commit -m "Prune old backups (keep last 3)" || true
 # Push changes upstream
 git push origin main || true
 
-echo "Repositories synced and workspace data backed up (last 3 snapshots retained)."
+echo "Repositories synced, workspace data restored/backed up (last 3 snapshots retained)."
 exec "$@"
