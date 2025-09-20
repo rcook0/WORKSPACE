@@ -12,3 +12,12 @@ fi
 
 # Call the real clone.sh in WORKSPACE repo
 /workspaces/WORKSPACE/clone.sh "$@"
+
+# Show last 20 log lines for quick feedback
+LOG_FILE="/workspaces/WORKSPACE/logs/sync.log"
+if [ -f "$LOG_FILE" ]; then
+  echo -e "\n📜 Last 20 lines from $LOG_FILE:"
+  tail -n 20 "$LOG_FILE"
+else
+  echo "⚠️  No sync.log found yet."
+fi
