@@ -10,6 +10,8 @@ services:
     working_dir: /workspace
     tty: true
     stdin_open: true
+    entrypoint: ["/usr/local/bin/clone.sh"]
+    command: ["bash"]
 
 volumes:
   workspace_data:
