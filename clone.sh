@@ -62,6 +62,15 @@ for repo in $repos; do
   fi
 done
 
+# --- Summary Report ---
+if [ ${#NEEDS_PUSH[@]} -gt 0 ]; then
+  echo -e "\n📌 Summary: ${#NEEDS_PUSH[@]} repos have unpushed commits:" | tee -a "$SYNC_LOG"
+  for repo in "${NEEDS_PUSH[@]}"; do
+    echo "   - $repo" | tee -a "$SYNC_LOG"
+  done
+else
+  echo -e "\n📌 Summary: All repos are in sync with origin." | tee -a "$SYNC_LOG"
+fi
 
 # --- Prepare Backup Repo ---
 mkdir -p "$BACKUP_DIR"
