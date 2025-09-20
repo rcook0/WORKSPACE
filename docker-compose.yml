@@ -5,7 +5,7 @@ services:
     build:
     container_name: workspace-dev
     volumes:
-      - ./:/workspace           
+      - ./:/workspaces/WORKSPACE
       - workspace_data:/workspace/data
     working_dir: /workspace
     tty: true
