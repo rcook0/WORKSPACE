@@ -32,12 +32,29 @@ repos=$(gh repo list $USER --limit 200 --json nameWithOwner --jq '.[].nameWithOw
 
 for repo in $repos; do
   name=$(basename "$repo")
-  if [ ! -d "$name/.git" ]; then
-    echo "  ➕ Cloning $repo" | tee -a "$SYNC_LOG"
-    gh repo clone "$repo" "$name"
+  path="$WORKSPACE_DIR/$name"
+
+  if [ ! -d "$path/.git" ]; then
+    echo "  ➕ Cloning $repo into $path" | tee -a "$SYNC_LOG"
+    gh repo clone "$repo" "$path"
+    if [ -d "$path/.git" ]; then
+      echo "     ✅ Found .git directory at $path/.git" | tee -a "$SYNC_LOG"
+    else
+      echo "     ⚠️  Warning: .git not found after clone (unexpected)" | tee -a "$SYNC_LOG"
+    fi
   else
-    echo "  ⬆️  Updating $repo" | tee -a "$SYNC_LOG"
-    (cd "$name" && git pull --ff-only || true)
+    cd "$path"
+    # Check if local branch is ahead of remote
+    ahead=$(git rev-list --count origin/HEAD..HEAD 2>/dev/null || echo 0)
+    if [ "$ahead" -gt 0 ]; then
+      echo "  ⚠️  Repo $name has $ahead local commit(s) not pushed to origin" | tee -a "$SYNC_LOG"
+    fi
+
+    echo "  ⬆️  Updating $repo in $path" | tee -a "$SYNC_LOG"
+    if ! git pull --ff-only; then
+      echo "     ❌ git pull failed (non-fast-forward). Manual merge/rebase required." | tee -a "$SYNC_LOG"
+    fi
+    cd "$WORKSPACE_DIR"
   fi
 done
 
