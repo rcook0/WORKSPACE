@@ -31,7 +31,7 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 # Call the real clone.sh in WORKSPACE repo
-/workspaces/WORKSPACE/clone.sh
+/workspaces/WORKSPACE/clone.sh "$@"
 
 # Show log output
 if [ -f "$LOG_FILE" ]; then
