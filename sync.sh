@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# Config
+TAIL_LINES=20
+
 # Clear Codespaces ephemeral token so gh auth works properly
 unset GITHUB_TOKEN
 
