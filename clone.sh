@@ -4,7 +4,7 @@ set -e
 # Prevent Codespaces ephemeral token from interfering
 unset GITHUB_TOKEN
 
-WORKSPACE_DIR="/workspace"
+WORKSPACE_DIR="/workspaces/WORKSPACE"
 USER="rcook0"
 BACKUP_REPO="git@github.com:${USER}/WORKSPACE-backup.git"
 BACKUP_DIR="${WORKSPACE_DIR}/.backup"
