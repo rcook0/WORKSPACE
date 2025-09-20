@@ -2,10 +2,10 @@ version: "3.9"
 
 services:
   dev:
-    image: dev-stack:latest        # 👈 your base image
+    build:
     container_name: workspace-dev
     volumes:
-      - ./:/workspace              # mount WORKSPACE repo
+      - ./:/workspace           
       - workspace_data:/workspace/data
     working_dir: /workspace
     tty: true
