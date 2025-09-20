@@ -1,0 +1,14 @@
+{
+  "folders": [
+    { "path": "repo1" },
+    { "path": "repo2" },
+    { "path": "repo3" }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/node_modules": true
+    }
+  }
+}
