@@ -18,9 +18,15 @@ fi
 
 # Show last 20 log lines for quick feedback
 LOG_FILE="/workspaces/WORKSPACE/logs/sync.log"
+
 if [ -f "$LOG_FILE" ]; then
-  echo -e "\n📜 Last 20 lines from $LOG_FILE:"
-  tail -n 20 "$LOG_FILE"
+  if [[ "$1" == "-a" || "$1" == "--all" ]]; then
+    echo -e "\n📜 Full sync log ($LOG_FILE):"
+    cat "$LOG_FILE"
+  else
+    echo -e "\n📜 Last $TAIL_LINES lines from $LOG_FILE:"
+    tail -n "$TAIL_LINES" "$LOG_FILE"
+  fi
 else
-  echo "⚠️  No sync.log found yet."
+  echo "!!! No sync.log found yet."
 fi
