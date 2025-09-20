@@ -1,1 +1,1 @@
-alias sync="~/sync.sh"
+alias wsync="~/sync.sh"
