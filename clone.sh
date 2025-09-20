@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
+# Prevent Codespaces ephemeral token from interfering
+unset GITHUB_TOKEN
+
 WORKSPACE_DIR="/workspace"
 USER="rcook0"
 BACKUP_REPO="git@github.com:${USER}/WORKSPACE-backup.git"
 BACKUP_DIR="${WORKSPACE_DIR}/.backup"
-STATE_DIR="${WORKSPACE_DIR}/data"   # persistent workspace data
+STATE_DIR="${WORKSPACE_DIR}/data"
 
 # Ensure gh is authenticated
 if ! gh auth status >/dev/null 2>&1; then
@@ -49,7 +52,14 @@ cd "$BACKUP_DIR/repo"
 cp "$BACKUP_DIR/$archive" .
 git add "$archive"
 git commit -m "Backup workspace data ${timestamp}" || true
+
+# --- Prune old backups, keep last 3 ---
+echo "Pruning old backups, keeping last 3..."
+ls -tp workspace-data-*.tar.gz | tail -n +4 | xargs -r git rm -f
+git commit -m "Prune old backups (keep last 3)" || true
+
+# Push changes upstream
 git push origin main || true
 
-echo "Repositories synced and workspace data backed up."
+echo "Repositories synced and workspace data backed up (last 3 snapshots retained)."
 exec "$@"
