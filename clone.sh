@@ -27,6 +27,7 @@ fi
 cd "$WORKSPACE_DIR"
 
 # --- Sync Repositories ---
+# --- Sync Repositories ---
 echo "🔄 Syncing repositories for $USER..." | tee -a "$SYNC_LOG"
 repos=$(gh repo list $USER --limit 200 --json nameWithOwner --jq '.[].nameWithOwner')
 
@@ -44,7 +45,9 @@ for repo in $repos; do
     fi
   else
     cd "$path"
-    # Check if local branch is ahead of remote
+
+    # Detect unpushed local commits
+    git fetch origin >/dev/null 2>&1 || true
     ahead=$(git rev-list --count origin/HEAD..HEAD 2>/dev/null || echo 0)
     if [ "$ahead" -gt 0 ]; then
       echo "  ⚠️  Repo $name has $ahead local commit(s) not pushed to origin" | tee -a "$SYNC_LOG"
@@ -54,9 +57,11 @@ for repo in $repos; do
     if ! git pull --ff-only; then
       echo "     ❌ git pull failed (non-fast-forward). Manual merge/rebase required." | tee -a "$SYNC_LOG"
     fi
+
     cd "$WORKSPACE_DIR"
   fi
 done
+
 
 # --- Prepare Backup Repo ---
 mkdir -p "$BACKUP_DIR"
