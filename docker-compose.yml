@@ -2,16 +2,22 @@ version: "3.9"
 
 services:
   dev:
-    build:
+    image: ghcr.io/rcook0/workspace/dev:latest
     container_name: workspace-dev
+    working_dir: /workspaces/WORKSPACE
     volumes:
       - ./:/workspaces/WORKSPACE
       - workspace_data:/workspace/data
-    working_dir: /workspaces/WORKSPACE
+      # mount a tiny init script that runs clone then drops to bash
+      - ./scripts/init.sh:/usr/local/bin/init.sh:ro
+    environment:
+      # map host UID/GID so new files aren’t root-owned
+      - HOST_UID=${UID:-1000}
+      - HOST_GID=${GID:-1000}
+    user: "${UID:-1000}:${GID:-1000}"
     tty: true
     stdin_open: true
-    entrypoint: ["/usr/local/bin/clone.sh"]
-    command: ["bash"]
+    entrypoint: ["/usr/local/bin/init.sh"]
 
 volumes:
   workspace_data:
