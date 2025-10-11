@@ -1,0 +1,4 @@
+module(
+    name = "build-commons",
+    version = "0.1.0",
+)

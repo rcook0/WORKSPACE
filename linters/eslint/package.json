@@ -1,0 +1,7 @@
+{
+  "name": "@rcook0/eslint-config",
+  "private": true,
+  "devDependencies": {
+    "eslint": "^9.11.1"
+  }
+}

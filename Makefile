@@ -1,17 +1,9 @@
-.PHONY: setup update build up down
+REG := ghcr.io/rcook0/workspace
+PLAT := linux/amd64,linux/arm64
 
-build:
-	docker-compose build
-
-up:
-	docker-compose up -d
-
-down:
-    docker-compose down
-
-setup:
-    # Run initial repo sync inside container
-	docker exec -it workspace-dev /usr/local/bin/clone.sh bash
-
-update:
-    docker exec -it workspace-dev git submodule update --init --recursive --remote
+.PHONY: dev runtime images
+dev:
+	docker buildx build --platform=$(PLAT) -t $(REG)/dev:latest --push docker/dev
+runtime:
+	docker buildx build --platform=$(PLAT) -t $(REG)/runtime:latest --push docker/runtime
+images: dev runtime

@@ -1,0 +1,7 @@
+{
+  "name": "dev",
+  "image": "ghcr.io/rcook0/workspace/dev:latest",
+  "remoteUser": "dev",
+  "mounts": ["source=${localWorkspaceFolder},target=/workspace,type=bind"],
+  "postCreateCommand": "git config --global --add safe.directory /workspace || true"
+}
