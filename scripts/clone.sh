@@ -1,132 +1,131 @@
 #!/usr/bin/env bash
-set -e
+# Bulk clone/pull GitHub repos into /workspaces/WORKSPACE with logs & safety.
+# Works for a user or org. Defaults to USER=rcook0.
+set -Eeuo pipefail
 
-# Prevent Codespaces ephemeral token from interfering
-unset GITHUB_TOKEN
+### --- Config ---------------------------------------------------------------
+WORKSPACE_DIR="${WORKSPACE_DIR:-/workspaces/WORKSPACE}"
+OWNER="${1:-${GITHUB_OWNER:-rcook0}}"         # user or org (e.g. rcook0 or my-org)
+FILTER_REGEX="${FILTER_REGEX:-.*}"            # e.g. "^(svc-|lib-|WORKSPACE|tooling)"
+INCLUDE_FORKS="${INCLUDE_FORKS:-false}"       # "true" to include forks
+SKIP_ARCHIVED="${SKIP_ARCHIVED:-true}"        # "false" to include archived
+SHALLOW="${SHALLOW:-true}"                    # shallow clone (depth 1)
+SUBMODULES="${SUBMODULES:-false}"             # "true" to recurse
+PARALLEL="${PARALLEL:-6}"                     # parallel jobs
+LOG_DIR="${LOG_DIR:-${WORKSPACE_DIR}/logs}"
+SYNC_LOG="${SYNC_LOG:-${LOG_DIR}/sync.log}"
 
-WORKSPACE_DIR="/workspaces/WORKSPACE"
-USER="rcook0"
-BACKUP_REPO="git@github.com:${USER}/WORKSPACE-backup.git"
-BACKUP_DIR="${WORKSPACE_DIR}/.backup"
-STATE_DIR="${WORKSPACE_DIR}/data"
-LOG_DIR="${WORKSPACE_DIR}/logs"
-SYNC_LOG="${LOG_DIR}/sync.log"
+# Make sure Codespaces' ephemeral token doesn't hijack auth
+unset GITHUB_TOKEN || true
 
-mkdir -p "$LOG_DIR"
-
-# Add a header for this run
+mkdir -p "${LOG_DIR}" "${WORKSPACE_DIR}"
 run_time=$(date +"%Y-%m-%d %H:%M:%S")
-echo -e "\n=== Sync run at $run_time ===" | tee -a "$SYNC_LOG"
+echo -e "\n=== Sync run at ${run_time} (owner=${OWNER}, filter=${FILTER_REGEX}) ===" | tee -a "$SYNC_LOG"
 
-# Ensure gh is authenticated
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "❌ Missing dependency: $1" | tee -a "$SYNC_LOG"
+    exit 1
+  }
+}
+need_cmd gh
+need_cmd jq
+need_cmd git
+need_cmd xargs
+
+# gh auth check
 if ! gh auth status >/dev/null 2>&1; then
-  echo "⚠️  GitHub CLI not authenticated. Please run: gh auth login" | tee -a "$SYNC_LOG"
-  exec "$@"
+  echo "⚠️  GitHub CLI not authenticated. Run: gh auth login" | tee -a "$SYNC_LOG"
+  exit 1
 fi
 
 cd "$WORKSPACE_DIR"
 
-# --- Sync Repositories ---
-# --- Sync Repositories ---
-echo "🔄 Syncing repositories for $USER..." | tee -a "$SYNC_LOG"
-repos=$(gh repo list $USER --limit 200 --json nameWithOwner --jq '.[].nameWithOwner')
+### --- Discover repos -------------------------------------------------------
+echo "🔎 Listing repos for '${OWNER}'..." | tee -a "$SYNC_LOG"
+# `gh repo list` works for users or orgs.
+# We pull metadata so we can filter safely.
+repos_json=$(gh repo list "$OWNER" --limit 1000 --json name,sshUrl,archived,isFork,visibility 2>/dev/null | jq -c '.[]')
 
-for repo in $repos; do
-  name=$(basename "$repo")
-  path="$WORKSPACE_DIR/$name"
+# Filter list
+filtered=$(echo "$repos_json" | jq -r --arg rx "$FILTER_REGEX" --argjson allowForks "${INCLUDE_FORKS}" --argjson skipArchived "${SKIP_ARCHIVED}" '
+  select(.name|test($rx))
+  | select(($allowForks) or (.isFork|not))
+  | select((.archived|not) or ( $skipArchived|not ))
+  | [.name, .sshUrl] | @tsv
+')
 
-  if [ ! -d "$path/.git" ]; then
-    echo "  ➕ Cloning $repo into $path" | tee -a "$SYNC_LOG"
-    gh repo clone "$repo" "$path"
-    if [ -d "$path/.git" ]; then
-      echo "     ✅ Found .git directory at $path/.git" | tee -a "$SYNC_LOG"
+if [[ -z "$filtered" ]]; then
+  echo "ℹ️  No repositories matched filter '${FILTER_REGEX}' under '${OWNER}'." | tee -a "$SYNC_LOG"
+  exit 0
+fi
+
+mapfile -t LINES <<< "$filtered"
+echo "🧾 Repos to sync: ${#LINES[@]}" | tee -a "$SYNC_LOG"
+
+### --- Functions ------------------------------------------------------------
+clone_or_update() {
+  local name="$1" ssh="$2"
+  local path="${WORKSPACE_DIR}/${name}"
+
+  if [[ ! -d "${path}/.git" ]]; then
+    echo "  ➕ Cloning ${name}" | tee -a "$SYNC_LOG"
+    local depth=()
+    [[ "$SHALLOW" == "true" ]] && depth=(--depth 1)
+
+    local submod=()
+    [[ "$SUBMODULES" == "true" ]] && submod=(--recurse-submodules)
+
+    # Faster/leaner clone: blob filtering reduces bandwidth
+    if git clone --filter=blob:none "${depth[@]}" "${submod[@]}" "$ssh" "$path" >>"$SYNC_LOG" 2>&1; then
+      echo "     ✅ clone ok: ${name}" | tee -a "$SYNC_LOG"
     else
-      echo "     ⚠️  Warning: .git not found after clone (unexpected)" | tee -a "$SYNC_LOG"
+      echo "     ❌ clone failed: ${name}" | tee -a "$SYNC_LOG"
+      return 1
     fi
   else
-    cd "$path"
+    echo "  ⬆️  Updating ${name}" | tee -a "$SYNC_LOG"
+    (
+      cd "$path"
+      # normalize origin URL to SSH (in case gh cloned via https before)
+      git remote set-url origin "$ssh" || true
+      git fetch --all -p >>"$SYNC_LOG" 2>&1 || true
 
-    # Detect unpushed local commits
-    git fetch origin >/dev/null 2>&1 || true
-    ahead=$(git rev-list --count origin/HEAD..HEAD 2>/dev/null || echo 0)
-    if [ "$ahead" -gt 0 ]; then
-      echo "  ⚠️  Repo $name has $ahead local commit(s) not pushed to origin" | tee -a "$SYNC_LOG"
-    fi
+      # detect unpushed commits
+      # compute upstream; fallback to origin/HEAD where possible
+      upstream=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "origin/HEAD")
+      ahead=$(git rev-list --count "${upstream}..HEAD" 2>/dev/null || echo 0)
 
-    echo "  ⬆️  Updating $repo in $path" | tee -a "$SYNC_LOG"
-    if ! git pull --ff-only; then
-      echo "     ❌ git pull failed (non-fast-forward). Manual merge/rebase required." | tee -a "$SYNC_LOG"
-    fi
+      if ! git pull --ff-only >>"$SYNC_LOG" 2>&1; then
+        echo "     ❌ non-fast-forward; manual rebase required in ${name}" | tee -a "$SYNC_LOG"
+      fi
 
-    cd "$WORKSPACE_DIR"
+      if [[ "$ahead" != "0" ]]; then
+        echo "     ⚠️ ${name} has ${ahead} local commit(s) not pushed" | tee -a "$SYNC_LOG"
+        echo "${name}" >> "${LOG_DIR}/needs-push.list"
+      fi
+    )
   fi
-done
+}
 
-# --- Summary Report ---
-if [ ${#NEEDS_PUSH[@]} -gt 0 ]; then
-  echo -e "\n📌 Summary: ${#NEEDS_PUSH[@]} repos have unpushed commits:" | tee -a "$SYNC_LOG"
-  for repo in "${NEEDS_PUSH[@]}"; do
-    echo "   - $repo" | tee -a "$SYNC_LOG"
-  done
+export -f clone_or_update
+export WORKSPACE_DIR SYNC_LOG SHALLOW SUBMODULES LOG_DIR
+
+### --- Parallel sync --------------------------------------------------------
+# shellcheck disable=SC2016
+printf '%s\n' "${LINES[@]}" | xargs -r -n1 -P "${PARALLEL}" bash -lc '
+  IFS=$'\''\t'\'' read -r name ssh <<< "$0"
+  clone_or_update "$name" "$ssh"
+'
+
+### --- Summary --------------------------------------------------------------
+if [[ -f "${LOG_DIR}/needs-push.list" ]]; then
+  sort -u "${LOG_DIR}/needs-push.list" > "${LOG_DIR}/needs-push.list.tmp" && mv "${LOG_DIR}/needs-push.list.tmp" "${LOG_DIR}/needs-push.list"
+  count=$(wc -l < "${LOG_DIR}/needs-push.list" || echo 0)
+  echo -e "\n📌 Summary: ${count} repos have local commits not on origin:" | tee -a "$SYNC_LOG"
+  sed 's/^/   - /' "${LOG_DIR}/needs-push.list" | tee -a "$SYNC_LOG"
 else
-  echo -e "\n📌 Summary: All repos are in sync with origin." | tee -a "$SYNC_LOG"
+  echo -e "\n📌 Summary: All repos are fast-forward with origin (no local-ahead repos detected)." | tee -a "$SYNC_LOG"
 fi
 
-# --- Prepare Backup Repo ---
-mkdir -p "$BACKUP_DIR"
-if [ ! -d "$BACKUP_DIR/repo/.git" ]; then
-  echo "📂 Cloning backup repo..." | tee -a "$SYNC_LOG"
-  git clone "$BACKUP_REPO" "$BACKUP_DIR/repo"
-fi
-cd "$BACKUP_DIR/repo"
-
-# --- Auto-Restore (if /workspace/data is missing) ---
-if [ ! -d "$STATE_DIR" ] || [ -z "$(ls -A "$STATE_DIR" 2>/dev/null)" ]; then
-  latest_backup=$(ls -t workspace-data-*.tar.gz 2>/dev/null | head -n1 || true)
-  if [ -n "$latest_backup" ]; then
-    echo "♻️  Restoring workspace data from $latest_backup" | tee -a "$SYNC_LOG"
-    mkdir -p "$STATE_DIR"
-    tar -xzf "$latest_backup" -C "$WORKSPACE_DIR"
-  else
-    echo "ℹ️  No backup found to restore." | tee -a "$SYNC_LOG"
-  fi
-else
-  echo "✅ Workspace data already present, no restore needed." | tee -a "$SYNC_LOG"
-fi
-
-# --- Backup Non-Git State ---
-timestamp=$(date +"%Y%m%d-%H%M%S")
-archive="workspace-data-${timestamp}.tar.gz"
-
-if [ -d "$STATE_DIR" ] && [ -n "$(ls -A "$STATE_DIR")" ]; then
-  echo "💾 Creating new backup: $archive" | tee -a "$SYNC_LOG"
-  tar -czf "$BACKUP_DIR/$archive" -C "$WORKSPACE_DIR" data
-  cp "$BACKUP_DIR/$archive" .
-  git add "$archive"
-  git commit -m "Backup workspace data ${timestamp}" || true
-else
-  echo "⚠️  No workspace data to back up." | tee -a "$SYNC_LOG"
-fi
-
-# --- Prune old backups, keep last 3 ---
-echo "🧹 Pruning old backups (keep last 3)..." | tee -a "$SYNC_LOG"
-keep=$(ls -t workspace-data-*.tar.gz 2>/dev/null | head -n3 || true)
-remove=$(ls -t workspace-data-*.tar.gz 2>/dev/null | tail -n +4 || true)
-
-if [ -n "$remove" ]; then
-  echo "   Removing:" | tee -a "$SYNC_LOG"
-  echo "$remove" | sed 's/^/     - /' | tee -a "$SYNC_LOG"
-  echo "$remove" | xargs -r git rm -f
-  git commit -m "Prune old backups (keep last 3)" || true
-else
-  echo "   Nothing to prune." | tee -a "$SYNC_LOG"
-fi
-
-echo "   Keeping:" | tee -a "$SYNC_LOG"
-echo "$keep" | sed 's/^/     - /' | tee -a "$SYNC_LOG"
-
-# Push changes upstream
-git push origin main || true
-
-echo "✅ Repositories synced, workspace data restored/backed up (last 3 snapshots retained)." | tee -a "$SYNC_LOG"
-exec "$@"
+echo "✅ Done." | tee -a "$SYNC_LOG"
